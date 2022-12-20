@@ -1,15 +1,14 @@
 import pandas as pd
 
 import torch
-import torchaudio
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-import torchaudio.transforms as T
+from torch.utils.data import random_split
+from torch.utils.data.dataloader import DataLoader
 
-
-from torch.utils.data.dataloader import DataLoader, Dataset, T_co
+from data_preparation import spec_dataset
 
 
 def accuracy(outputs, labels):
@@ -17,38 +16,35 @@ def accuracy(outputs, labels):
     return torch.tensor(torch.sum(preds == labels).item() / len(preds))
 
 
-class EmotionCNN(nn.Module):    
+class EmotionCNN(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
 
         self.network = nn.Sequential(
-            # first `layer`
-            nn.Conv2d(3, 32, kernel_size=5, padding=1),
+            nn.Conv2d(1, 32, kernel_size=5, padding=1),
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=5, padding=1, stride=1),
             nn.ReLU(),
-            nn.AvgPool2d(2, 2), # out: 64 x 16 x 16
+            nn.AvgPool2d(2, 2), # out: 64 x 254 x 213
 
-            # second `layer`
             nn.Conv2d(64, 128, kernel_size=5, padding=1, stride=1),
             nn.ReLU(),
             nn.Conv2d(128, 128, kernel_size=5, padding=1, stride=1),
             nn.ReLU(),
-            nn.AvgPool2d(2, 2), # out: 128 x 8 x 8
+            nn.AvgPool2d(2, 2), # out: 128 x 125 x 104
 
-            # third `layer`
             nn.Conv2d(128, 256, kernel_size=5, padding=1, stride=1),
             nn.ReLU(),
             nn.Conv2d(256, 256, kernel_size=5, padding=1, stride=1),
             nn.ReLU(),
-            nn.AvgPool2d(2, 2), # out: 256 x 4 x 4
+            nn.AvgPool2d(2, 2), # out: 256 x 60 x 50
 
             nn.Dropout(p=.4),
 
             nn.Flatten(),
 
-            nn.Linear(in_features=256 * 4 * 4, out_features=1024),
+            nn.Linear(in_features=256 * 60 * 50, out_features=1024),
             nn.ReLU(),
             nn.Linear(in_features=1024, out_features=512),
             nn.ReLU(),
@@ -95,7 +91,7 @@ def fit(epochs, lr, model: EmotionCNN, train_loader, val_loader, opt_func = opti
     history = []
     optimizer = opt_func(model.parameters(), lr=lr)
 
-    for epoch in epochs:
+    for epoch in range(epochs):
         model.train()
         train_losses = []
 
@@ -106,14 +102,38 @@ def fit(epochs, lr, model: EmotionCNN, train_loader, val_loader, opt_func = opti
             optimizer.step()
             optimizer.zero_grad()
         
-        result = evaluate(epoch, result)
+        result = evaluate(model, val_loader)
         result["train_loss"] = torch.stack(train_losses).mean().item()
         model.epoch_end(epoch, result)
 
-    return 
+    return history
 
+train_num = int(len(spec_dataset) * .7)
+val_num = int(len(spec_dataset) * .3)
+
+train_ds, val_ds = random_split(
+    dataset=spec_dataset, 
+    lengths=[train_num, val_num], 
+    generator=torch.Generator().manual_seed(42)
+)
+
+batch_size = 64
+train_loader = DataLoader(train_ds, batch_size, shuffle=True)
+val_loader = DataLoader(val_ds, batch_size)
 
 model = EmotionCNN()
-history = fit(epochs=10, lr=.001, model=model, train_loader=train_loader, val_loader=val_loader)
+history = fit(epochs=1, lr=.001, model=model, train_loader=train_loader, val_loader=val_loader)
 
+# simple_model = nn.Sequential(
+#     nn.Conv2d(1, 32, kernel_size=5, padding=1),
+#     nn.ReLU(),
+#     nn.Conv2d(32, 64, kernel_size=5, padding=1, stride=1),
+#     nn.ReLU(),
+#     nn.AvgPool2d(2, 2), # out: 64 x 16 x 16
+# )
 
+# for images, labels in train_loader:
+#     print('images.shape:', images.shape)
+#     out = simple_model(images)
+#     print('out.shape:', out.shape)
+#     break

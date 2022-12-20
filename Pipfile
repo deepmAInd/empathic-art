@@ -15,6 +15,8 @@ librosa = "*"
 torch = "*"
 torchvision = "*"
 torchaudio = "*"
+opencv-python = "*"
+noisereduce = "*"
 
 [dev-packages]
 
